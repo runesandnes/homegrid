@@ -2,6 +2,8 @@
 
 A customizable home info screen for a wall-mounted tablet, spare monitor, or kiosk display. Split the screen into a grid of frames and fill each one with a clock, weather, photos, news headlines, a calendar, transit departures, or any web page. Everything runs in the browser — no build step, no server, no account.
 
+You don't even have to download anything, just run it directly from here: https://runesandnes.github.io/homegrid/
+
 ![Home Grid running a three-frame layout with weather, transit departures, and a calendar](doc/homegrid-demo-3-grid.png)
 
 ## Features
