@@ -401,7 +401,7 @@ const DEFAULT_CONFIG = {
   // Remembered city — pre-selected for any new location widget until changed.
   lastLocation: { lat: 59.9139, lon: 10.7522, label: "Oslo, Norway", timezone: "Europe/Oslo" },
   panes: {
-    a: { type: "clock-temp", location: { lat: 59.9139, lon: 10.7522, label: "Oslo, Norway", timezone: "Europe/Oslo" } },
+    a: { type: "weather-today", location: { lat: 59.9139, lon: 10.7522, label: "Oslo, Norway", timezone: "Europe/Oslo" } },
     // b left blank by default — shows the "Add source" prompt
     c: { type: "entur", url: "https://vis-tavla.entur.no/CH3rXJu08WM2iRT9nIwN" },
   },
