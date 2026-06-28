@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home Grid</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Pane grid; populated by app.js -->
+  <main id="grid"></main>
+
+  <!-- Top-right floating toolbar (auto-hides when idle) -->
+  <div class="toolbar chrome">
+    <button id="btn-customize" class="tool-btn" title="Customize" aria-label="Customize">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+    <button id="btn-fullscreen" class="tool-btn" title="Fullscreen" aria-label="Toggle fullscreen">
+      <svg class="ic-enter" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"></path>
+      </svg>
+      <svg class="ic-exit" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Slide-in customize panel -->
+  <aside id="customize" class="panel" aria-hidden="true">
+    <header class="panel-head">
+      <h2>Customize</h2>
+      <div class="head-actions">
+        <label class="theme-switch" title="Light / dark mode">
+          <input type="checkbox" id="theme-toggle">
+          <span class="track"><span class="thumb">☀️</span></span>
+        </label>
+        <button id="btn-close-customize" class="icon-x" aria-label="Close">&times;</button>
+      </div>
+    </header>
+    <section class="panel-section">
+      <h3>Layout</h3>
+      <div id="layout-picker" class="layout-picker"></div>
+    </section>
+    <section class="panel-section">
+      <h3>Frames</h3>
+      <div id="frame-list" class="frame-list"></div>
+    </section>
+  </aside>
+
+  <!-- Generic modal host (widget menu + config dialogs) -->
+  <div id="modal-backdrop" class="modal-backdrop" aria-hidden="true">
+    <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
