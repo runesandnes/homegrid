@@ -9,6 +9,10 @@ const STORAGE_KEY = "homegrid.config";
 const RSS_PROXY = (url) => `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`;
 // iCalendar (.ics) feeds (iCloud, Google, …) are blocked cross-origin too; same idea.
 const ICS_PROXY = (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+// iCloud's photo API also blocks cross-origin reads — this proxy forwards POST + body.
+// cors.sh is a free public proxy; for reliability you can self-host one (e.g. a
+// Cloudflare Worker) and point this at it instead.
+const ICLOUD_PROXY = (url) => `https://proxy.cors.sh/${url}`;
 // webcal:// is just https with a different scheme — normalise it for fetch().
 const toHttp = (u) => String(u || "").trim().replace(/^webcal:\/\//i, "https://");
 
@@ -251,17 +255,26 @@ function icloudBaseUrl(token, host) {
 async function icloudAlbumImages(shareUrl) {
   const token = icloudToken(shareUrl);
   if (!token) throw new Error("no album token");
-  const post = (base, path, body) =>
-    fetch(base + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
+
+  // Try Apple directly; on a CORS/network block, switch to the proxy for good.
+  let viaProxy = false;
+  const postJSON = async (url, body) => {
+    const opts = { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) };
+    if (!viaProxy) {
+      try { return await (await fetch(url, opts)).json(); }
+      catch { viaProxy = true; }
+    }
+    return (await fetch(ICLOUD_PROXY(url), opts)).json();
+  };
+  const post = (base, path, body) => postJSON(base + path, body);
 
   let base = icloudBaseUrl(token);
-  let res = await post(base, "webstream", { streamCtag: null });
-  if (res.status === 330) { // partition redirect — retry on the host Apple hands back
-    base = icloudBaseUrl(token, (await res.json())["X-Apple-MMe-Host"]);
-    res = await post(base, "webstream", { streamCtag: null });
+  let stream = await post(base, "webstream", { streamCtag: null });
+  if (stream && stream["X-Apple-MMe-Host"]) { // partition redirect — retry on Apple's host
+    base = icloudBaseUrl(token, stream["X-Apple-MMe-Host"]);
+    stream = await post(base, "webstream", { streamCtag: null });
   }
-  if (!res.ok) throw new Error(`webstream ${res.status}`);
-  const photos = (await res.json()).photos || [];
+  const photos = stream.photos || [];
 
   // Keep the largest derivative of each photo, then resolve its signed URL.
   const wanted = new Set(); // checksums we actually want a URL for
@@ -275,9 +288,7 @@ async function icloudAlbumImages(shareUrl) {
   }
   if (!guids.length) return [];
 
-  const aRes = await post(base, "webasseturls", { photoGuids: guids });
-  if (!aRes.ok) throw new Error(`webasseturls ${aRes.status}`);
-  const items = (await aRes.json()).items || {};
+  const items = (await post(base, "webasseturls", { photoGuids: guids })).items || {};
   return Object.entries(items)
     .filter(([checksum]) => wanted.has(checksum))
     .map(([, it]) => `https://${it.url_location}${it.url_path}`);
