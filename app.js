@@ -181,6 +181,7 @@ function parseICS(text) {
     if (name === "DTSTART") { const d = parseICSDate(val); if (d) { cur.start = d.date; cur.allDay = d.allDay; } }
     else if (name === "DTEND") { const d = parseICSDate(val); if (d) cur.end = d.date; }
     else if (name === "SUMMARY") cur.summary = unescapeICS(val);
+    else if (name === "LOCATION") cur.location = unescapeICS(val);
     else if (name === "RRULE") cur.rrule = val;
   }
   return events;
@@ -189,7 +190,7 @@ const DOW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
 // Expand one event into occurrences within [from, to]. Handles the common RRULE
 // shapes (FREQ + INTERVAL/COUNT/UNTIL, plus BYDAY for weekly); ignores exotic ones.
 function expandEvent(ev, from, to) {
-  const mk = (d) => ({ start: new Date(d), allDay: ev.allDay, summary: ev.summary });
+  const mk = (d) => ({ start: new Date(d), allDay: ev.allDay, summary: ev.summary, location: ev.location });
   if (!ev.rrule) return (ev.start >= from && ev.start <= to) ? [mk(ev.start)] : [];
   const rule = Object.fromEntries(ev.rrule.split(";").map((p) => p.split("=")).filter((a) => a[0]).map(([k, v]) => [k.toUpperCase(), v]));
   const freq = rule.FREQ;
@@ -228,11 +229,21 @@ function expandEvent(ev, from, to) {
   }
   return out;
 }
-// Friendly "Wed 15 Jan · 09:00" / "Wed 15 Jan" for all-day events.
-function fmtEventWhen(o) {
-  const day = o.start.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-  if (o.allDay) return day;
-  return `${day} · ${o.start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+// Day-grouping helpers for the agenda view.
+const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+const fmtTime = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+// Group sorted occurrences by calendar day, all-day events first within each day.
+function groupByDay(occurrences) {
+  const days = new Map();
+  for (const o of occurrences) {
+    const key = dayKey(o.start);
+    if (!days.has(key)) days.set(key, { date: o.start, items: [] });
+    days.get(key).items.push(o);
+  }
+  for (const day of days.values()) {
+    day.items.sort((a, b) => (b.allDay - a.allDay) || (a.start - b.start));
+  }
+  return [...days.values()];
 }
 
 // iCloud Shared Album image fetching -------------------------
@@ -526,9 +537,7 @@ const WIDGETS = [
     render(node, cfg) {
       node.className = "w w-agenda";
       const list = el("div", { className: "agenda-list" });
-      node.append(el("div", { className: "agenda-wrap" },
-        el("div", { className: "agenda-head" }, "📆 ", el("span", { className: "agenda-title", textContent: "Upcoming" })),
-        list));
+      node.append(list);
       const draw = async () => {
         try {
           const text = await (await fetch(ICS_PROXY(toHttp(cfg.url)))).text();
@@ -540,13 +549,22 @@ const WIDGETS = [
           const upcoming = occ
             .filter((o) => (o.allDay ? o.start >= from : o.start >= now))
             .sort((a, b) => a.start - b.start)
-            .slice(0, 12);
-          if (!upcoming.length) { list.replaceChildren(el("div", { className: "agenda-item", textContent: "No upcoming events." })); return; }
-          list.replaceChildren(...upcoming.map((o) => el("div", { className: "agenda-item" },
-            el("div", { className: "when", textContent: fmtEventWhen(o) }),
-            el("div", { className: "what", textContent: o.summary || "(no title)" }))));
+            .slice(0, 40);
+          if (!upcoming.length) { list.replaceChildren(el("div", { className: "agenda-empty", textContent: "No upcoming events." })); return; }
+          list.replaceChildren(...groupByDay(upcoming).map((day) => {
+            const head = el("div", { className: "day-head" },
+              el("div", { className: "cal-leaf" },
+                el("div", { className: "leaf-top", textContent: day.date.toLocaleDateString("en-GB", { weekday: "short" }) }),
+                el("div", { className: "leaf-num", textContent: String(day.date.getDate()) })),
+              el("div", { className: "day-month", textContent: day.date.toLocaleDateString("en-GB", { month: "long" }) }));
+            const rows = day.items.map((o) => el("div", { className: "agenda-row" },
+              el("span", { className: "ev-time", textContent: o.allDay ? "All day" : fmtTime(o.start) }),
+              el("span", { className: "ev-title", textContent: o.summary || "(no title)" }),
+              ...(o.location ? [el("span", { className: "ev-loc", textContent: o.location })] : [])));
+            return el("div", { className: "agenda-day" }, head, el("div", { className: "day-events" }, ...rows));
+          }));
         } catch {
-          list.replaceChildren(el("div", { className: "agenda-item", textContent: "Couldn't load calendar (check the link / proxy)." }));
+          list.replaceChildren(el("div", { className: "agenda-empty", textContent: "Couldn't load calendar (check the link / proxy)." }));
         }
       };
       draw();

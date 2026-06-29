@@ -238,28 +238,83 @@ body {
 .rss-item:last-child { border-bottom: 0; }
 .rss-item .when { display: block; color: var(--ink-faint); font-size: 0.78rem; margin-top: 3px; }
 
-/* iCloud calendar / agenda */
-.w-agenda { padding: 0; align-items: stretch; }
-.agenda-wrap { width: 100%; height: 100%; display: flex; flex-direction: column; }
-.agenda-head {
-  padding: 14px 18px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: var(--ink-soft);
-  border-bottom: 1px solid var(--line);
+/* iCloud calendar / agenda — grouped by day, left-aligned */
+.w-agenda { padding: 0; align-items: stretch; justify-content: flex-start; text-align: left; }
+.agenda-list { width: 100%; height: 100%; overflow-y: auto; padding: 16px 18px; }
+.agenda-empty { color: var(--ink-faint); font-size: 0.95rem; padding: 6px 0; }
+
+/* Each day block is closed off by a divider at its end */
+.agenda-day { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.agenda-day:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
+
+/* Day headline: calendar-leaf date box + month */
+.day-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
-.agenda-list { overflow-y: auto; padding: 6px 0; }
-.agenda-item {
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--line);
-  line-height: 1.35;
+.cal-leaf {
+  flex: 0 0 auto;
+  width: 44px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--pane-bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(20, 23, 31, 0.08);
+  text-align: center;
 }
-.agenda-item:last-child { border-bottom: 0; }
-.agenda-item .when { font-size: 0.78rem; color: var(--ink-faint); }
-.agenda-item .what { font-size: 0.95rem; color: var(--ink); margin-top: 2px; }
+.cal-leaf .leaf-top {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 0;
+}
+.cal-leaf .leaf-num {
+  font-size: 1.4rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+  padding: 1px 0 3px;
+}
+.day-month { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
+
+/* One line per event: time, title, optional location */
+.day-events { display: flex; flex-direction: column; gap: 7px; }
+.agenda-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+.agenda-row .ev-time {
+  flex: 0 0 auto;
+  width: 4.2em;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+}
+.agenda-row .ev-title {
+  flex: 1 1 auto;
+  min-width: 3em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agenda-row .ev-loc {
+  flex: 0 4 auto;          /* gives up space before the title does */
+  color: var(--ink-faint);
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agenda-row .ev-loc::before { content: "· "; }
 
 .w-msg { color: var(--ink-faint); font-size: 0.95rem; flex-direction: column; gap: 8px; }
 
