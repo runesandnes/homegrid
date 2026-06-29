@@ -10,9 +10,10 @@ You don't even have to download anything, just run it directly from here: https:
 
 - **Flexible layouts** — nine grid templates, from a simple two-pane split to a 2×2 grid or a feature pane with sidebars.
 - **Native widgets** — clock, clock + temperature, temperature, daily weather forecast, and a photo slideshow.
-- **Embeddable sources** — Google Calendar, Entur and Ruter departure boards, RSS/Atom news feeds, and arbitrary web pages via iframe.
-- **No API keys** — weather and geocoding are powered by [Open-Meteo](https://open-meteo.com); RSS feeds load through the public [rss2json](https://rss2json.com) proxy.
-- **Local photo folders** — point the slideshow at a folder on your machine (Chromium browsers) or supply a list of image URLs.
+- **Calendars** — a native iCloud agenda (upcoming events from a published calendar) or an embedded Google Calendar.
+- **Embeddable sources** — Entur and Ruter departure boards, RSS/Atom news feeds, and arbitrary web pages via iframe.
+- **No API keys** — weather and geocoding are powered by [Open-Meteo](https://open-meteo.com); RSS and iCloud calendar feeds load through public proxies ([rss2json](https://rss2json.com) and [allorigins](https://allorigins.win)).
+- **Photo slideshow** — point it at a local folder (Chromium browsers), a public iCloud Shared Album, or a list of image URLs.
 - **Light / dark theme** with per-widget colour and text-size overrides.
 - **Auto-hiding chrome** and a fullscreen toggle, so the display stays clean when idle.
 - **Persistent** — your layout and sources are saved to `localStorage` (folder handles to IndexedDB).
@@ -58,8 +59,9 @@ The toolbar auto-hides after a few seconds of inactivity; move the mouse or tap 
 | Clock + Temp | native | Clock alongside current temperature |
 | Temperature | native | Current temperature for a city |
 | Weather today | native | Current conditions + hourly forecast |
-| Photo slideshow | native | Local folder or list of image URLs |
+| Photo slideshow | native | Local folder, public iCloud Shared Album, or image URLs |
 | News / RSS | native | Any RSS or Atom feed |
+| iCloud Calendar | native | Upcoming events from a published iCloud calendar |
 | Google Calendar | iframe | Paste the calendar's embed code or URL |
 | Entur board | iframe | Norwegian departures via [vis-tavla.entur.no](https://vis-tavla.entur.no) |
 | Ruter departures | iframe | Oslo-area departures via [mon.ruter.no](https://mon.ruter.no) |

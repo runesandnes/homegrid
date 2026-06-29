@@ -1,3 +1,5 @@
 /.DS_Store
 /~/.nvm/nvm.sh
 /~/.nvm/nvm-exec
+/.vscode
+/.claude

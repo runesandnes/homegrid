@@ -7,6 +7,10 @@ const STORAGE_KEY = "homegrid.config";
 // RSS feeds can't be fetched cross-origin directly; route through a proxy.
 // Swap this for a self-hosted proxy if you prefer.
 const RSS_PROXY = (url) => `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`;
+// iCalendar (.ics) feeds (iCloud, Google, …) are blocked cross-origin too; same idea.
+const ICS_PROXY = (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+// webcal:// is just https with a different scheme — normalise it for fetch().
+const toHttp = (u) => String(u || "").trim().replace(/^webcal:\/\//i, "https://");
 
 // ---------- tiny DOM helpers ----------
 const qs = (sel, root = document) => root.querySelector(sel);
@@ -145,6 +149,140 @@ async function loadCurrentTemp(node, loc) {
   } catch { t.textContent = "N/A"; }
 }
 
+// iCalendar (.ics) parsing -----------------------------------
+const unescapeICS = (s) => String(s).replace(/\\n/gi, " ").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
+// "20260115T090000Z" / "…T090000" (local) / "20260115" (all-day) -> { date, allDay }.
+// TZID-tagged times are read as local wall-clock — fine for a same-region dashboard.
+function parseICSDate(val) {
+  const m = String(val).match(/(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
+  if (!m) return null;
+  const [, Y, Mo, D, h, mi, s, z] = m;
+  if (h === undefined) return { date: new Date(+Y, +Mo - 1, +D), allDay: true };
+  if (z) return { date: new Date(Date.UTC(+Y, +Mo - 1, +D, +h, +mi, +s)), allDay: false };
+  return { date: new Date(+Y, +Mo - 1, +D, +h, +mi, +s), allDay: false };
+}
+// Unfold continuation lines, then pull each VEVENT's start/end/summary/rrule.
+function parseICS(text) {
+  const lines = String(text).replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
+  const events = [];
+  let cur = null;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") { cur = {}; continue; }
+    if (line === "END:VEVENT") { if (cur?.start) events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const i = line.indexOf(":");
+    if (i < 0) continue;
+    const name = line.slice(0, i).split(";")[0].toUpperCase();
+    const val = line.slice(i + 1);
+    if (name === "DTSTART") { const d = parseICSDate(val); if (d) { cur.start = d.date; cur.allDay = d.allDay; } }
+    else if (name === "DTEND") { const d = parseICSDate(val); if (d) cur.end = d.date; }
+    else if (name === "SUMMARY") cur.summary = unescapeICS(val);
+    else if (name === "RRULE") cur.rrule = val;
+  }
+  return events;
+}
+const DOW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+// Expand one event into occurrences within [from, to]. Handles the common RRULE
+// shapes (FREQ + INTERVAL/COUNT/UNTIL, plus BYDAY for weekly); ignores exotic ones.
+function expandEvent(ev, from, to) {
+  const mk = (d) => ({ start: new Date(d), allDay: ev.allDay, summary: ev.summary });
+  if (!ev.rrule) return (ev.start >= from && ev.start <= to) ? [mk(ev.start)] : [];
+  const rule = Object.fromEntries(ev.rrule.split(";").map((p) => p.split("=")).filter((a) => a[0]).map(([k, v]) => [k.toUpperCase(), v]));
+  const freq = rule.FREQ;
+  const interval = Math.max(1, parseInt(rule.INTERVAL || "1", 10));
+  const count = rule.COUNT ? parseInt(rule.COUNT, 10) : Infinity;
+  const until = rule.UNTIL ? parseICSDate(rule.UNTIL)?.date : null;
+  const byday = rule.BYDAY ? rule.BYDAY.split(",").map((d) => DOW[d.slice(-2)]).filter((n) => n != null) : null;
+  const base = new Date(ev.start);
+  const out = [];
+  let emitted = 0, guard = 0;
+  const ok = (d) => (!until || d <= until) && emitted < count;
+  if (freq === "WEEKLY" && byday?.length) {
+    const week = new Date(base); week.setDate(base.getDate() - base.getDay());
+    while (guard++ < 2000 && emitted < count && week <= to) {
+      for (const wd of [...byday].sort((a, b) => a - b)) {
+        const d = new Date(week); d.setDate(week.getDate() + wd);
+        d.setHours(base.getHours(), base.getMinutes(), base.getSeconds(), 0);
+        if (d < base) continue;
+        if (!ok(d)) { guard = 1e9; break; }
+        emitted++;
+        if (d >= from && d <= to) out.push(mk(d));
+      }
+      week.setDate(week.getDate() + 7 * interval);
+    }
+    return out;
+  }
+  const cur = new Date(base);
+  while (guard++ < 4000 && cur <= to && ok(cur)) {
+    emitted++;
+    if (cur >= from) out.push(mk(cur));
+    if (freq === "DAILY") cur.setDate(cur.getDate() + interval);
+    else if (freq === "WEEKLY") cur.setDate(cur.getDate() + 7 * interval);
+    else if (freq === "MONTHLY") cur.setMonth(cur.getMonth() + interval);
+    else if (freq === "YEARLY") cur.setFullYear(cur.getFullYear() + interval);
+    else break;
+  }
+  return out;
+}
+// Friendly "Wed 15 Jan · 09:00" / "Wed 15 Jan" for all-day events.
+function fmtEventWhen(o) {
+  const day = o.start.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  if (o.allDay) return day;
+  return `${day} · ${o.start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+}
+
+// iCloud Shared Album image fetching -------------------------
+// Apple's public "sharedstreams" web API — no key, but it is undocumented and
+// may change without notice. Works from the browser; the album must be public.
+const icloudToken = (url) => {
+  const v = String(url || "").trim();
+  if (v.includes("#")) return v.split("#").pop().trim();
+  return v.split("?")[0].replace(/\/+$/, "").split("/").pop();
+};
+function icloudBaseUrl(token, host) {
+  if (host) return `https://${host}/${token}/sharedstreams/`;
+  // The token's leading char(s) encode which server partition holds the album.
+  const base62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const partition = token[0] === "A"
+    ? base62.indexOf(token[1])
+    : base62.indexOf(token[1]) * 62 + base62.indexOf(token[2]);
+  return `https://p${String(partition).padStart(2, "0")}-sharedstreams.icloud.com/${token}/sharedstreams/`;
+}
+async function icloudAlbumImages(shareUrl) {
+  const token = icloudToken(shareUrl);
+  if (!token) throw new Error("no album token");
+  const post = (base, path, body) =>
+    fetch(base + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) });
+
+  let base = icloudBaseUrl(token);
+  let res = await post(base, "webstream", { streamCtag: null });
+  if (res.status === 330) { // partition redirect — retry on the host Apple hands back
+    base = icloudBaseUrl(token, (await res.json())["X-Apple-MMe-Host"]);
+    res = await post(base, "webstream", { streamCtag: null });
+  }
+  if (!res.ok) throw new Error(`webstream ${res.status}`);
+  const photos = (await res.json()).photos || [];
+
+  // Keep the largest derivative of each photo, then resolve its signed URL.
+  const wanted = new Set(); // checksums we actually want a URL for
+  const guids = [];
+  for (const p of photos) {
+    const derivs = Object.values(p.derivatives || {}).filter((d) => d.checksum);
+    if (!derivs.length) continue;
+    const best = derivs.sort((a, b) => (+b.fileSize || 0) - (+a.fileSize || 0))[0];
+    wanted.add(best.checksum);
+    guids.push(p.photoGuid);
+  }
+  if (!guids.length) return [];
+
+  const aRes = await post(base, "webasseturls", { photoGuids: guids });
+  if (!aRes.ok) throw new Error(`webasseturls ${aRes.status}`);
+  const items = (await aRes.json()).items || {};
+  return Object.entries(items)
+    .filter(([checksum]) => wanted.has(checksum))
+    .map(([, it]) => `https://${it.url_location}${it.url_path}`);
+}
+
 const WIDGETS = [
   {
     id: "clock", label: "Clock", icon: "🕒", kind: "native",
@@ -241,8 +379,12 @@ const WIDGETS = [
     fields: [
       { key: "folder", type: "folder", label: "Local folder",
         help: "Pick a folder on this computer — every image in it rotates. You'll need to re-grant access after restarting the browser." },
+      { key: "icloud", type: "url", label: "…or iCloud Shared Album",
+        help: "Paste a public iCloud Shared Album link. On your iPhone/Mac open the album, "
+          + "share it, enable the Public Website, and copy that link. Used when no folder is chosen.",
+        placeholder: "https://www.icloud.com/sharedalbum/#B0…" },
       { key: "images", type: "textarea", label: "…or image URLs",
-        help: "One image URL per line (used when no folder is chosen).",
+        help: "One image URL per line (used when no folder or album is set).",
         placeholder: "https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg" },
       { key: "interval", type: "number", label: "Seconds per image", help: "Defaults to 8.", placeholder: "8" },
     ],
@@ -294,6 +436,12 @@ const WIDGETS = [
         node.replaceChildren(el("div", { className: "w-msg" }, btn));
       };
       if (cfg.folderId) { node.append(el("div", { className: "w-msg", textContent: "Loading photos…" })); loadFolder(); }
+      else if (cfg.icloud) {
+        node.append(el("div", { className: "w-msg", textContent: "Loading iCloud album…" }));
+        icloudAlbumImages(cfg.icloud)
+          .then((urls) => cycle(urls))
+          .catch(() => node.replaceChildren(el("div", { className: "w-msg", textContent: "Couldn't load that iCloud album — check it's a public Shared Album link." })));
+      }
       else cycle(String(cfg.images || "").split("\n").map((s) => s.trim()).filter(Boolean));
       return () => { clearInterval(timer); objectUrls.forEach((u) => URL.revokeObjectURL(u)); };
     },
@@ -350,6 +498,50 @@ const WIDGETS = [
         "Note: plain calendar links can’t be embedded — use the embed code",
       ],
     })],
+  },
+  {
+    id: "icloud-calendar", label: "iCloud Calendar", icon: "📆", kind: "native",
+    desc: "Upcoming events from a shared iCloud calendar.",
+    fields: [urlField("Public calendar link", {
+      placeholder: "webcal://p…-calendars.icloud.com/published/…",
+      help: "Show upcoming events from an iCloud calendar:",
+      steps: [
+        "In Calendar (Mac) or iCloud.com, hover the calendar and open its share options",
+        "Turn on “Public Calendar” and copy the link it gives you",
+        "Paste the webcal:// or https:// link below",
+        { text: "The feed loads through a public proxy (", link: { label: "allorigins", url: "https://allorigins.win" }, tail: ") because browsers block cross-site calendar requests" },
+      ],
+    })],
+    render(node, cfg) {
+      node.className = "w w-agenda";
+      const list = el("div", { className: "agenda-list" });
+      node.append(el("div", { className: "agenda-wrap" },
+        el("div", { className: "agenda-head" }, "📆 ", el("span", { className: "agenda-title", textContent: "Upcoming" })),
+        list));
+      const draw = async () => {
+        try {
+          const text = await (await fetch(ICS_PROXY(toHttp(cfg.url)))).text();
+          const now = new Date();
+          const from = new Date(now); from.setHours(0, 0, 0, 0);
+          const to = new Date(now.getTime() + 60 * 86400000); // 60-day horizon
+          const occ = [];
+          for (const ev of parseICS(text)) occ.push(...expandEvent(ev, from, to));
+          const upcoming = occ
+            .filter((o) => (o.allDay ? o.start >= from : o.start >= now))
+            .sort((a, b) => a.start - b.start)
+            .slice(0, 12);
+          if (!upcoming.length) { list.replaceChildren(el("div", { className: "agenda-item", textContent: "No upcoming events." })); return; }
+          list.replaceChildren(...upcoming.map((o) => el("div", { className: "agenda-item" },
+            el("div", { className: "when", textContent: fmtEventWhen(o) }),
+            el("div", { className: "what", textContent: o.summary || "(no title)" }))));
+        } catch {
+          list.replaceChildren(el("div", { className: "agenda-item", textContent: "Couldn't load calendar (check the link / proxy)." }));
+        }
+      };
+      draw();
+      const id = setInterval(draw, 900000);
+      return () => clearInterval(id);
+    },
   },
   {
     id: "entur", label: "Entur board", icon: "🚆", kind: "iframe",
